@@ -1,128 +1,75 @@
-# Lifo
+[update-readmes]   Mode: rewrite — migrating to template structure...
+# lifo
 
-A Linux-like operating system that runs natively in the browser. Not a VM, not an emulator -- a reimagination of Unix where the browser runtime is the kernel and browser APIs are the system calls.
+[![Built with Ona](https://ona.com/build-with-ona.svg)](https://app.ona.com/#https://github.com/Interested-Deving-1896/lifo)
 
-```
-┌──────────────────────────────────────────────────┐
-│                  Terminal UI                      │  xterm.js + Tokyo Night theme
-├──────────────────────────────────────────────────┤
-│                    Shell                          │  bash-like interpreter
-├──────────────────────────────────────────────────┤
-│            Command Registry / $PATH              │  ES module command map
-├───────────┬────────────┬─────────────────────────┤
-│ Coreutils │ Net Cmds   │ User Packages           │  each cmd = async function
-├───────────┴────────────┴─────────────────────────┤
-│          Node.js Compatibility Layer             │  thin wrappers over OS APIs
-├──────────────────────────────────────────────────┤
-│           Virtual Filesystem (VFS)               │  in-memory + IndexedDB persistence
-├──────────────────────────────────────────────────┤
-│              Kernel API Layer                    │  unified browser API wrappers
-├──────────────────────────────────────────────────┤
-│               Browser APIs                       │  fetch, streams, OPFS, etc.
-└──────────────────────────────────────────────────┘
-```
+<!-- AI:start:what-it-does -->
+_Description pending._
+<!-- AI:end:what-it-does -->
 
-## Getting Started
+## Architecture
+
+<!-- AI:start:architecture -->
+_Architecture documentation pending._
+<!-- AI:end:architecture -->
+
+## Install
+
+<!-- Add installation instructions here. This section is yours — the AI will not modify it. -->
 
 ```bash
-pnpm install
-pnpm dev
+git clone https://github.com/Interested-Deving-1896/lifo.git
+cd lifo
 ```
 
-Open http://localhost:5173 in a modern browser. You'll be greeted with a fully functional terminal.
+## Usage
 
-```bash
-pnpm build        # Production build
-pnpm test         # Run test suite
-pnpm typecheck    # Type check without emitting
-```
+<!-- Add usage examples here. This section is yours — the AI will not modify it. -->
 
-## What's Inside
+## Configuration
 
-### Kernel
+<!-- Document configuration options here. This section is yours — the AI will not modify it. -->
 
-- **Virtual Filesystem (VFS)** -- synchronous in-memory INode tree with full POSIX-like semantics (read, write, stat, mkdir, symlinks, hard links, permissions)
-- **Virtual Providers** -- `/proc` exposes system info (uptime, meminfo, cpuinfo, version) and `/dev` provides device files (null, zero, random, urandom)
-- **Persistence** -- IndexedDB-backed filesystem persistence with serialization/deserialization of the entire INode tree
+## CI
 
-### Shell
+<!-- AI:start:ci -->
+_CI documentation pending._
+<!-- AI:end:ci -->
 
-A bash-like shell with:
+## Mirror chain
 
-- Full **lexer/parser/interpreter** pipeline producing an AST
-- **Pipes** (`ls | grep foo | wc -l`), **redirects** (`>`, `>>`, `<`, `2>`, `&>`)
-- **Logical operators** (`&&`, `||`), **sequences** (`;`), **background** (`&`)
-- **Variable expansion** (`$VAR`, `${VAR:-default}`), **command substitution** (`$(...)`)
-- **Glob expansion** (`*.txt`, `**/*.js`), **tilde expansion** (`~`), **brace expansion** (`{a,b,c}`)
-- **Tab completion** for commands, files, and directories
-- **Command history** with reverse search
-- **Job control** (Ctrl+C, `fg`, `bg`, `jobs`)
-- **Builtins**: `cd`, `pwd`, `export`, `alias`, `source`, `read`, `test`, `echo`, and more
-
-### 60+ Commands
-
-| Category | Commands |
-|---|---|
-| **Filesystem** | `ls`, `cat`, `cp`, `mv`, `rm`, `mkdir`, `rmdir`, `touch`, `ln`, `stat`, `find`, `tree`, `du`, `df`, `chmod`, `file`, `basename`, `dirname`, `realpath`, `mktemp` |
-| **Text** | `grep`, `sed`, `awk`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`, `tr`, `diff`, `nl`, `rev` |
-| **I/O** | `printf`, `tee`, `xargs`, `yes` |
-| **Network** | `curl`, `wget`, `ping`, `dig` |
-| **System** | `ps`, `top`, `kill`, `env`, `uname`, `whoami`, `hostname`, `uptime`, `free`, `date`, `cal`, `bc`, `sleep`, `watch`, `which`, `man`, `help` |
-| **Archive** | `tar`, `gzip`, `gunzip`, `zip`, `unzip` |
-| **Runtime** | `node` (run JS with Node.js compat layer), `pkg` (package manager) |
-
-### Node.js Compatibility Layer
-
-Run JavaScript files with `node script.js` or `node -e "code"`. The compatibility layer maps 15 Node.js standard library modules to browser APIs:
-
-`fs`, `path`, `events`, `buffer`, `util`, `os`, `process`, `http`, `child_process`, `stream`, `url`, `timers`, `crypto`, `console`
-
-### Package Manager
-
-```bash
-pkg install <url>    # Install a package from URL
-pkg remove <name>    # Uninstall a package
-pkg list             # List installed packages
-pkg info <name>      # Show package details
-```
-
-## Filesystem Hierarchy
+<!-- AI:start:mirror-chain -->
+This repo is maintained in [`Interested-Deving-1896/lifo`](https://github.com/Interested-Deving-1896/lifo) and mirrored through:
 
 ```
-/
-├── home/user/          # User home directory ($HOME)
-├── tmp/                # Temporary files (in-memory)
-├── etc/                # System configuration
-├── var/log/            # System logs
-├── usr/bin/            # Installed package binaries
-├── proc/               # Virtual: system info (cpuinfo, meminfo, uptime)
-├── dev/                # Virtual: devices (null, zero, random, urandom)
-└── bin/                # Core commands
+Interested-Deving-1896/lifo  ──►  OpenOS-Project-OSP/lifo  ──►  OpenOS-Project-Ecosystem-OOC/lifo
 ```
 
-## Tech Stack
+Changes flow downstream automatically via the hourly mirror chain in
+[`fork-sync-all`](https://github.com/Interested-Deving-1896/fork-sync-all).
+Direct commits to OSP or OOC are detected and opened as PRs back to `Interested-Deving-1896`.
+<!-- AI:end:mirror-chain -->
 
-- **TypeScript** (strict mode, ESM throughout)
-- **Vite** for builds
-- **xterm.js** + WebGL addon for terminal rendering
-- **Vitest** for testing
-- **Target**: Chrome 110+, Firefox 110+, Safari 16.4+
+## Contributors
 
-## Project Structure
+<!-- AI:start:contributors -->
+_Contributors pending._
+<!-- AI:end:contributors -->
 
-```
-src/
-├── main.ts              # Boot sequence
-├── kernel/              # VFS, persistence, virtual providers
-├── shell/               # Lexer, parser, interpreter, expander, completer
-├── commands/            # All 60+ commands organized by category
-├── node-compat/         # Node.js standard library shims
-├── pkg/                 # Package manager
-├── terminal/            # xterm.js wrapper
-└── utils/               # Path, args, glob, colors, encoding, archive
-tests/                   # Mirrors src/ structure with full coverage
-```
+## Origins
+
+<!-- AI:start:origins -->
+_Original project — no upstream fork._
+<!-- AI:end:origins -->
+
+## Resources
+
+<!-- AI:start:resources -->
+_No additional resource files found._
+<!-- AI:end:resources -->
 
 ## License
 
-MIT
+<!-- AI:start:license -->
+<!-- License not detected — add a LICENSE file to this repo. -->
+<!-- AI:end:license -->
