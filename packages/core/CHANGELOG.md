@@ -1,3 +1,9 @@
+## 0.10.16
+
+### Patch Changes
+
+- Bump browser-metro to 1.5.2: saving a non-source file (eas.json, package-lock.json) no longer surfaces as a bogus "Build error: /eas.json: Unexpected token" — rebuild only re-transforms files already in the module graph; the web preamble defines `process.env.EXPO_OS = "web"` so packages that branch on it (expo-router, expo-modules-core) take the web path in the preview; NATIVE_DEPS_VERSION 6.
+
 # @lifo-sh/core
 
 ## 0.10.15
