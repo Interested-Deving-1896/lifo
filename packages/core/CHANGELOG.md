@@ -1,3 +1,9 @@
+## 0.10.17
+
+### Patch Changes
+
+- Bump browser-metro to 1.5.5: the web preview's `react-native` shim now gives react-native-web an `Appearance.setColorScheme` with native semantics ('light'/'dark' pins the scheme, null/'unspecified' follows the OS again, listeners are notified). Apps with a theme setting that call it — required on RN 0.86 for a "system" option — no longer throw "Appearance.setColorScheme is not a function" and blank every artboard.
+
 ## 0.10.16
 
 ### Patch Changes
