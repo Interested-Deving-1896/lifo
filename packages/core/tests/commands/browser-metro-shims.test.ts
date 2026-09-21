@@ -129,3 +129,54 @@ describe('className patch — which element types are converted', () => {
     expect(el.props.style).toEqual({ $$css: true, 'h-36': 'h-36' });
   });
 });
+
+/**
+ * className + a plain-object style is the deferred path: the patch hands RNW
+ * only the $$css tokens and writes the user style onto the DOM node from a ref
+ * callback. Mount a fake node through that ref and read back what was written.
+ */
+function mountStyle(style: Record<string, unknown>): Record<string, unknown> {
+  const { React, RN } = runPatch();
+  const el = React.createElement(RN.View, { className: 'absolute', style }) as {
+    props: { ref: (node: { style: Record<string, unknown> }) => void };
+  };
+  const node = { style: {} as Record<string, unknown> };
+  el.props.ref(node);
+  return node.style;
+}
+
+describe('className patch — RN transform on the deferred style path', () => {
+  // Regression: el.style.transform = [{ scale }] stringified to
+  // "[object Object]" and was dropped — a scale-to-fit card rendered at its full
+  // 360px design width inside a correctly sized 112px tile in the editor preview.
+  it('turns a transform array into a CSS transform list', () => {
+    const style = mountStyle({ width: 360, transform: [{ scale: 0.3111 }], transformOrigin: 'top left' });
+    expect(style.transform).toBe('scale(0.3111)');
+    expect(style.transformOrigin).toBe('top left');
+    expect(style.width).toBe('360px');
+  });
+
+  it('keeps order, adds px only to length functions, leaves angle strings alone', () => {
+    const style = mountStyle({
+      transform: [{ translateX: 12 }, { translateY: -4.5 }, { rotate: '45deg' }, { scaleX: 2 }, { perspective: 800 }],
+    });
+    expect(style.transform).toBe('translateX(12px) translateY(-4.5px) rotate(45deg) scaleX(2) perspective(800px)');
+  });
+
+  it('joins matrix arrays', () => {
+    expect(mountStyle({ transform: [{ matrix: [1, 0, 0, 1, 10, 20] }] }).transform).toBe('matrix(1,0,0,1,10,20)');
+  });
+
+  it('passes a CSS transform string through unchanged', () => {
+    expect(mountStyle({ transform: 'scale(0.5) rotate(10deg)' }).transform).toBe('scale(0.5) rotate(10deg)');
+  });
+
+  it('skips null entries and yields an empty transform for an empty array', () => {
+    expect(mountStyle({ transform: [null, { scale: 2 }, { translateX: undefined }] }).transform).toBe('scale(2)');
+    expect(mountStyle({ transform: [] }).transform).toBe('');
+  });
+
+  it('accepts the array form of transformOrigin, numbers as px', () => {
+    expect(mountStyle({ transformOrigin: [0, '50%', 10] }).transformOrigin).toBe('0px 50% 10px');
+  });
+});

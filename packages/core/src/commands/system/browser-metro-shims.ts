@@ -134,6 +134,43 @@ var _RN_STYLE_SHORTHANDS = {
   insetBlock: ["top", "bottom"],
 };
 
+// Transform functions whose numeric argument is a length. Everything else
+// (scale*, and rotate/skew which RN takes as "45deg" strings) is written bare.
+var _TRANSFORM_PX = {
+  translateX: true, translateY: true, translateZ: true, perspective: true,
+};
+
+// React Native's transform is an ARRAY of single-key objects
+// ([{ scale: 0.3 }, { translateX: 4 }]), not a CSS string. The deferred-ref
+// path bypasses react-native-web's translation, so el.style.transform = [...]
+// stringifies to "[object Object]" and the browser silently drops it — the
+// element renders untransformed (observed as a scale-to-fit card drawn at its
+// full design width inside a correctly sized, clipping tile). Build the CSS
+// function list the way RNW would. Strings (RN 0.73+ also accepts CSS
+// transform strings) pass through unchanged.
+function _transformToCss(value) {
+  if (!Array.isArray(value)) return value;
+  var parts = [];
+  for (var i = 0; i < value.length; i++) {
+    var t = value[i];
+    if (!t || typeof t !== "object") continue;
+    for (var fn in t) {
+      if (!Object.prototype.hasOwnProperty.call(t, fn) || t[fn] == null) continue;
+      var v = t[fn];
+      if (Array.isArray(v)) v = v.join(","); // matrix / matrix3d
+      else if (typeof v === "number" && _TRANSFORM_PX[fn]) v = v + "px";
+      parts.push(fn + "(" + v + ")");
+    }
+  }
+  return parts.join(" ");
+}
+
+// RN also accepts transformOrigin as [x, y, z]; numbers are pixels.
+function _transformOriginToCss(value) {
+  if (!Array.isArray(value)) return value;
+  return value.map(function(v) { return typeof v === "number" ? v + "px" : v; }).join(" ");
+}
+
 // Apply a single style key/value to a DOM element. Numeric values get a
 // px suffix unless the key is in the unitless list. Null/undefined skipped.
 function _applyStyleKey(el, key, value) {
@@ -143,6 +180,8 @@ function _applyStyleKey(el, key, value) {
     for (var i = 0; i < expand.length; i++) _applyStyleKey(el, expand[i], value);
     return;
   }
+  if (key === "transform") value = _transformToCss(value);
+  else if (key === "transformOrigin") value = _transformOriginToCss(value);
   if (typeof value === "number" && !_UNITLESS[key]) value = value + "px";
   try { el.style[key] = value; } catch (e) {}
 }
