@@ -1,3 +1,9 @@
+## 0.10.18
+
+### Patch Changes
+
+- Web preview className patch: a React Native `transform` array (`[{ scale }, { translateX }]`) on an element that also has `className` is now written as a CSS transform list. The patch applies such styles straight onto the DOM node, bypassing react-native-web, so the array stringified to "[object Object]" and the browser dropped it — scale-to-fit content rendered at full size inside a correctly sized, clipping parent in every artboard while the same source was correct on device. The `[x, y, z]` array form of `transformOrigin` is handled too.
+
 ## 0.10.17
 
 ### Patch Changes
