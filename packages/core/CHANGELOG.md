@@ -1,3 +1,9 @@
+## 0.10.20
+
+### Patch Changes
+
+- browser-metro 1.5.8 -> 1.5.9. Fixes a regression from 1.5.8: the guard that discards empty prefetched chunks also rejected valid subpath re-export stubs (for example `expo-router/js-tabs`, about 100 characters). Those were refetched individually, which re-bundled the base package and created a second copy of its singletons, so expo-router threw "No filename found" in the web preview. Chunks that reference `globalThis.__rnSubpaths` are now used as-is.
+
 ## 0.10.19
 
 ### Patch Changes
