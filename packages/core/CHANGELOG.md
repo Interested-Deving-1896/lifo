@@ -1,3 +1,9 @@
+## 0.10.19
+
+### Patch Changes
+
+- browser-metro 1.5.5 -> 1.5.8. Three bundler fixes reach the web preview: expo-router's `ExpoRoot` is now resolved defensively, so a package chunk that fails to initialize shows a readable diagnostic instead of React's "Element type is invalid"; a prefetched combined-bundle chunk that came back empty or as a bare IIFE wrapper is discarded and refetched individually, instead of evaluating to `{}` and silently exporting nothing; and `nativewind/jsx-runtime` + `nativewind/jsx-dev-runtime` are requested as explicit subpaths, so projects using `jsxImportSource: "nativewind"` get one css-interop copy in the combined bundle rather than a duplicate runtime from a standalone build.
+
 ## 0.10.18
 
 ### Patch Changes
