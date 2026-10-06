@@ -1,3 +1,9 @@
+## 0.10.21
+
+### Patch Changes
+
+- browser-metro 1.5.9 -> 1.5.10. 1.5.10 is cut from 1.5.5 (the version 0.10.18 shipped) plus one fix, because 1.5.8 and 1.5.9 are deprecated; the 1.5.8/1.5.9 changes are not in it. The fix: an import that cannot be resolved yet (an extensionless path or an alias such as `@/src/lib/id`, written before the file exists) got a throwing stub keyed by its raw specifier, and creating the file later never replaced it, so the web preview kept showing `Unable to resolve "@/src/lib/id" ... The file does not exist on the project filesystem.` until a full page reload. The bundler now re-resolves exactly the importers of such stubs when a file is created.
+
 ## 0.10.20
 
 ### Patch Changes
