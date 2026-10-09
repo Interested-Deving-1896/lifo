@@ -248,6 +248,16 @@ describe('ContentStore', () => {
   });
 });
 
+/**
+ * Byte-for-byte equality. CHUNK_THRESHOLD is 50 MB, so these files are
+ * >50M bytes; toEqual or one expect() per byte never finishes on that.
+ */
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.byteLength !== b.byteLength) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 describe('VFS chunked file integration', () => {
   // We import VFS here to test the full integration
   let VFS: typeof import('../../src/kernel/vfs/VFS.js').VFS;
@@ -272,7 +282,7 @@ describe('VFS chunked file integration', () => {
 
   it('stores large files as chunks', () => {
     const vfs = new VFS();
-    const size = CHUNK_THRESHOLD + 1000; // just over 1MB
+    const size = CHUNK_THRESHOLD + 1000; // just over the threshold
     const data = new Uint8Array(size);
     for (let i = 0; i < data.length; i++) data[i] = i % 256;
 
@@ -287,7 +297,7 @@ describe('VFS chunked file integration', () => {
     // Read back should return the exact same data
     const read = vfs.readFile('/large.bin');
     expect(read.byteLength).toBe(size);
-    expect(read).toEqual(data);
+    expect(sameBytes(read, data)).toBe(true);
   });
 
   it('overwriting a large file cleans up old chunks', () => {
@@ -366,12 +376,8 @@ describe('VFS chunked file integration', () => {
     expect(read.byteLength).toBe(CHUNK_THRESHOLD + 500 + 1000);
 
     // Verify content integrity
-    for (let i = 0; i < initial.length; i++) {
-      expect(read[i]).toBe(initial[i]);
-    }
-    for (let i = 0; i < extra.length; i++) {
-      expect(read[initial.length + i]).toBe(extra[i]);
-    }
+    expect(sameBytes(read.subarray(0, initial.length), initial)).toBe(true);
+    expect(sameBytes(read.subarray(initial.length), extra)).toBe(true);
   });
 
   it('copyFile of a chunked file creates an independent copy', () => {
@@ -384,7 +390,8 @@ describe('VFS chunked file integration', () => {
 
     const readSrc = vfs.readFile('/src.bin');
     const readDest = vfs.readFile('/dest.bin');
-    expect(readSrc).toEqual(readDest);
+    expect(sameBytes(readSrc, readDest)).toBe(true);
+    expect(sameBytes(readDest, data)).toBe(true);
     expect(readDest.byteLength).toBe(CHUNK_THRESHOLD + 100);
   });
 
