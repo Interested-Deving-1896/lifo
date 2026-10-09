@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Shell } from '../../src/shell/Shell.js';
 import { VFS } from '../../src/kernel/vfs/index.js';
 import { createDefaultRegistry } from '../../src/commands/registry.js';
+import { ProcessRegistry } from '../../src/shell/ProcessRegistry.js';
 
 // Minimal mock terminal
 function createMockTerminal() {
@@ -32,7 +33,7 @@ describe('Shell', () => {
       const terminal = createMockTerminal();
       const vfs = new VFS();
       const registry = createDefaultRegistry();
-      shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' });
+      shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' }, new ProcessRegistry());
     });
 
     it('splits simple words', () => {
@@ -71,7 +72,7 @@ describe('Shell', () => {
       vfs.mkdir('/home/user', { recursive: true });
       vfs.mkdir('/tmp');
       const registry = createDefaultRegistry();
-      shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' });
+      shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' }, new ProcessRegistry());
       shell.start();
       terminal.clearOutput();
     });
@@ -118,7 +119,7 @@ describe('Shell', () => {
       vfs.mkdir('/home/user', { recursive: true });
       vfs.mkdir('/tmp');
       const registry = createDefaultRegistry();
-      const shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' });
+      const shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' }, new ProcessRegistry());
       shell.start();
       terminal.clearOutput();
     });
@@ -147,7 +148,7 @@ describe('Shell', () => {
       vfs.mkdir('/home/user', { recursive: true });
       vfs.mkdir('/tmp');
       const registry = createDefaultRegistry();
-      const shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' });
+      const shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' }, new ProcessRegistry());
       shell.start();
       terminal.clearOutput();
     });
@@ -189,7 +190,7 @@ describe('Shell', () => {
       vfs = new VFS();
       vfs.mkdir('/home/user', { recursive: true });
       const registry = createDefaultRegistry();
-      const shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' });
+      const shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' }, new ProcessRegistry());
       shell.start();
       terminal.clearOutput();
     });
@@ -227,7 +228,7 @@ describe('Shell', () => {
       vfs = new VFS();
       vfs.mkdir('/home/user', { recursive: true });
       const registry = createDefaultRegistry();
-      const shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' });
+      const shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' }, new ProcessRegistry());
       shell.start();
       terminal.clearOutput();
     });
@@ -247,8 +248,11 @@ describe('Shell', () => {
 
     it('&& does not run second on failure', async () => {
       await sendLine('false && echo nope');
-      // "nope" appears in typed character echoes, so check that nope\r\n (command output) is absent
-      expect(terminal.getOutputText()).not.toContain('nope\r\n');
+      // The typed line is echoed back ending in "nope\r\n", so only look at
+      // what the shell printed after that echo.
+      const output = terminal.getOutputText();
+      const afterEcho = output.slice(output.indexOf('echo nope\r\n') + 'echo nope\r\n'.length);
+      expect(afterEcho).not.toContain('nope');
     });
 
     it('; runs unconditionally', async () => {
@@ -273,7 +277,7 @@ describe('Shell', () => {
       vfs = new VFS();
       vfs.mkdir('/home/user', { recursive: true });
       const registry = createDefaultRegistry();
-      const shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' });
+      const shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' }, new ProcessRegistry());
       shell.start();
       terminal.clearOutput();
     });
@@ -308,7 +312,7 @@ describe('Shell', () => {
       vfs.mkdir('/home/user', { recursive: true });
       vfs.mkdir('/tmp');
       const registry = createDefaultRegistry();
-      const shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' });
+      const shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' }, new ProcessRegistry());
       shell.start();
       terminal.clearOutput();
     });
@@ -439,7 +443,7 @@ describe('Shell', () => {
       vfs = new VFS();
       vfs.mkdir('/home/user', { recursive: true });
       const registry = createDefaultRegistry();
-      const shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' });
+      const shell = new Shell(terminal as never, vfs, registry, { HOME: '/home/user', USER: 'user', HOSTNAME: 'test' }, new ProcessRegistry());
       shell.start();
       terminal.clearOutput();
     });

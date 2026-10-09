@@ -1,44 +1,52 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ProcessRegistry } from './ProcessRegistry.js';
 
+/** Register a shell the way Shell.start() does; returns its PID. */
+function spawnShell(registry: ProcessRegistry, cwd = '/home/user', env: Record<string, string> = {}): number {
+  return registry.spawn({
+    command: 'shell',
+    args: ['shell'],
+    cwd,
+    env,
+    isForeground: true,
+    promise: new Promise(() => {}),
+    abortController: new AbortController(),
+  });
+}
+
 describe('ProcessRegistry', () => {
   let registry: ProcessRegistry;
+  let shellPid: number;
 
   beforeEach(() => {
     registry = new ProcessRegistry();
   });
 
-  describe('registerShell', () => {
-    it('should register shell as PID 1', () => {
+  describe('shell registration', () => {
+    it('registerShell is a deprecated no-op', () => {
       registry.registerShell('/home/user', { HOME: '/home/user' });
+      expect(registry.count()).toBe(0);
+    });
 
-      const shell = registry.get(1);
-      expect(shell).toBeDefined();
-      expect(shell?.pid).toBe(1);
-      expect(shell?.ppid).toBe(0);
+    it('a shell registers itself via spawn with its cwd and env', () => {
+      const env = { HOME: '/home/user', PATH: '/bin' };
+      const pid = spawnShell(registry, '/home/user', env);
+
+      const shell = registry.get(pid);
       expect(shell?.command).toBe('shell');
       expect(shell?.status).toBe('running');
       expect(shell?.isForeground).toBe(true);
-    });
-
-    it('should have correct environment and cwd', () => {
-      const env = { HOME: '/home/user', PATH: '/bin' };
-      const cwd = '/home/user';
-
-      registry.registerShell(cwd, env);
-
-      const shell = registry.get(1);
-      expect(shell?.cwd).toBe(cwd);
+      expect(shell?.cwd).toBe('/home/user');
       expect(shell?.env).toEqual(env);
     });
   });
 
   describe('spawn', () => {
     beforeEach(() => {
-      registry.registerShell('/home/user', {});
+      shellPid = spawnShell(registry);
     });
 
-    it('should assign sequential PIDs starting from 2', () => {
+    it('should assign sequential PIDs after the shell', () => {
       const pid1 = registry.spawn({
         command: 'ls',
         args: ['ls'],
@@ -59,8 +67,8 @@ describe('ProcessRegistry', () => {
         abortController: new AbortController(),
       });
 
-      expect(pid1).toBe(2);
-      expect(pid2).toBe(3);
+      expect(pid1).toBe(shellPid + 1);
+      expect(pid2).toBe(shellPid + 2);
     });
 
     it('should assign job IDs only to background processes', () => {
@@ -160,7 +168,7 @@ describe('ProcessRegistry', () => {
 
   describe('get and has', () => {
     beforeEach(() => {
-      registry.registerShell('/home/user', {});
+      shellPid = spawnShell(registry);
     });
 
     it('should retrieve process by PID', () => {
@@ -203,7 +211,7 @@ describe('ProcessRegistry', () => {
 
   describe('getByJobId', () => {
     beforeEach(() => {
-      registry.registerShell('/home/user', {});
+      shellPid = spawnShell(registry);
     });
 
     it('should retrieve background process by job ID', () => {
@@ -246,7 +254,7 @@ describe('ProcessRegistry', () => {
 
   describe('getAllPIDs and getAll', () => {
     beforeEach(() => {
-      registry.registerShell('/home/user', {});
+      shellPid = spawnShell(registry);
     });
 
     it('should return all PIDs in sorted order', () => {
@@ -271,7 +279,7 @@ describe('ProcessRegistry', () => {
       });
 
       const pids = registry.getAllPIDs();
-      expect(pids).toEqual([1, 2, 3]);
+      expect(pids).toEqual([shellPid, shellPid + 1, shellPid + 2]);
     });
 
     it('should return all processes', () => {
@@ -294,7 +302,7 @@ describe('ProcessRegistry', () => {
 
   describe('getRunning', () => {
     beforeEach(() => {
-      registry.registerShell('/home/user', {});
+      shellPid = spawnShell(registry);
     });
 
     it('should return only running and sleeping processes', async () => {
@@ -323,7 +331,7 @@ describe('ProcessRegistry', () => {
       registry.updateStatus(pid1, 'sleeping');
 
       const running = registry.getRunning();
-      expect(running.map(p => p.pid)).toContain(1); // shell
+      expect(running.map(p => p.pid)).toContain(shellPid);
       expect(running.map(p => p.pid)).toContain(pid1); // sleeping
       expect(running.map(p => p.pid)).not.toContain(pid2); // zombie
     });
@@ -331,7 +339,7 @@ describe('ProcessRegistry', () => {
 
   describe('getBackgroundJobs', () => {
     beforeEach(() => {
-      registry.registerShell('/home/user', {});
+      shellPid = spawnShell(registry);
     });
 
     it('should return only background processes', () => {
@@ -369,7 +377,7 @@ describe('ProcessRegistry', () => {
 
   describe('getZombies', () => {
     beforeEach(() => {
-      registry.registerShell('/home/user', {});
+      shellPid = spawnShell(registry);
     });
 
     it('should return only zombie processes', async () => {
@@ -404,7 +412,7 @@ describe('ProcessRegistry', () => {
 
   describe('kill', () => {
     beforeEach(() => {
-      registry.registerShell('/home/user', {});
+      shellPid = spawnShell(registry);
     });
 
     it('should abort the process', () => {
@@ -426,11 +434,11 @@ describe('ProcessRegistry', () => {
       expect(abortController.signal.aborted).toBe(true);
     });
 
-    it('should not kill shell (PID 1)', () => {
-      const shell = registry.get(1);
+    it('should not kill shell', () => {
+      const shell = registry.get(shellPid);
       const shellAbort = shell?.abortController;
 
-      const killed = registry.kill(1);
+      const killed = registry.kill(shellPid);
       expect(killed).toBe(false);
       expect(shellAbort?.signal.aborted).toBe(false);
     });
@@ -477,7 +485,7 @@ describe('ProcessRegistry', () => {
 
   describe('reap', () => {
     beforeEach(() => {
-      registry.registerShell('/home/user', {});
+      shellPid = spawnShell(registry);
     });
 
     it('should remove zombie process', async () => {
@@ -517,9 +525,9 @@ describe('ProcessRegistry', () => {
     });
 
     it('should not reap shell', () => {
-      const reaped = registry.reap(1);
+      const reaped = registry.reap(shellPid);
       expect(reaped).toBe(false);
-      expect(registry.has(1)).toBe(true);
+      expect(registry.has(shellPid)).toBe(true);
     });
 
     it('should return false for non-existent PID', () => {
@@ -530,7 +538,7 @@ describe('ProcessRegistry', () => {
 
   describe('collectZombies', () => {
     beforeEach(() => {
-      registry.registerShell('/home/user', {});
+      shellPid = spawnShell(registry);
     });
 
     it('should collect and reap all zombies', async () => {
@@ -579,7 +587,7 @@ describe('ProcessRegistry', () => {
 
   describe('updateStatus', () => {
     beforeEach(() => {
-      registry.registerShell('/home/user', {});
+      shellPid = spawnShell(registry);
     });
 
     it('should update process status', () => {
@@ -610,7 +618,7 @@ describe('ProcessRegistry', () => {
 
   describe('getUptime', () => {
     beforeEach(() => {
-      registry.registerShell('/home/user', {});
+      shellPid = spawnShell(registry);
     });
 
     it('should return process uptime', async () => {
@@ -642,7 +650,7 @@ describe('ProcessRegistry', () => {
 
   describe('getFormattedInfo', () => {
     beforeEach(() => {
-      registry.registerShell('/home/user', {});
+      shellPid = spawnShell(registry);
     });
 
     it('should format process info', () => {
@@ -705,7 +713,7 @@ describe('ProcessRegistry', () => {
 
   describe('count and reset', () => {
     beforeEach(() => {
-      registry.registerShell('/home/user', {});
+      shellPid = spawnShell(registry);
     });
 
     it('should count processes', () => {
@@ -737,7 +745,7 @@ describe('ProcessRegistry', () => {
     });
 
     it('should reset registry except shell', () => {
-      registry.spawn({
+      const pid1 = registry.spawn({
         command: 'test1',
         args: ['test1'],
         cwd: '/home',
@@ -747,7 +755,7 @@ describe('ProcessRegistry', () => {
         abortController: new AbortController(),
       });
 
-      registry.spawn({
+      const pid2 = registry.spawn({
         command: 'test2',
         args: ['test2'],
         cwd: '/home',
@@ -762,9 +770,9 @@ describe('ProcessRegistry', () => {
       registry.reset();
 
       expect(registry.count()).toBe(1);
-      expect(registry.has(1)).toBe(true); // shell preserved
-      expect(registry.has(2)).toBe(false);
-      expect(registry.has(3)).toBe(false);
+      expect(registry.has(shellPid)).toBe(true); // shell preserved
+      expect(registry.has(pid1)).toBe(false);
+      expect(registry.has(pid2)).toBe(false);
     });
 
     it('should reset PID and job ID counters', () => {
@@ -791,7 +799,8 @@ describe('ProcessRegistry', () => {
       });
 
       const proc = registry.get(pid);
-      expect(pid).toBe(2); // Reset to 2
+      expect(pid).toBe(shellPid + 1); // Numbering restarts after the shell
+      expect(registry.get(shellPid)?.command).toBe('shell'); // not overwritten
       expect(proc?.jobId).toBe(1); // Reset to 1
     });
   });

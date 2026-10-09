@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { VFS } from '../../src/kernel/vfs/index.js';
-import { JobTable } from '../../src/shell/jobs.js';
+import { ProcessRegistry } from '../../src/shell/ProcessRegistry.js';
 import { CommandRegistry } from '../../src/commands/registry.js';
 import type { CommandContext, CommandOutputStream, CommandInputStream } from '../../src/commands/types.js';
 
@@ -24,36 +24,43 @@ function createContext(
   };
 }
 
-function createStdin(content: string): CommandInputStream {
-  let read = false;
-  return {
-    async read() { if (read) return null; read = true; return content; },
-    async readAll() { return content; },
-  };
+/** A registry holding a shell, the way Shell.start() registers itself. */
+function createProcessRegistry(): ProcessRegistry {
+  const registry = new ProcessRegistry();
+  registry.spawn({
+    command: 'shell', args: ['shell'], cwd: '/home/user', env: {},
+    isForeground: true, promise: new Promise(() => {}), abortController: new AbortController(),
+  });
+  return registry;
+}
+
+/** Spawn a never-ending background job; returns its pid and abort controller. */
+function spawnSleep(registry: ProcessRegistry): { pid: number; ac: AbortController } {
+  const ac = new AbortController();
+  const pid = registry.spawn({
+    command: 'sleep', args: ['sleep', '100'], cwd: '/home/user', env: {},
+    isForeground: false, promise: new Promise(() => {}), abortController: ac,
+  });
+  return { pid, ac };
 }
 
 describe('ps', () => {
-  it('shows shell and ps itself with no jobs', async () => {
-    const jobTable = new JobTable();
+  it('shows the shell with no jobs', async () => {
     const { createPsCommand } = await import('../../src/commands/system/ps.js');
-    const ps = createPsCommand(jobTable);
-    const vfs = new VFS();
-    const ctx = createContext(vfs, []);
+    const ps = createPsCommand(createProcessRegistry());
+    const ctx = createContext(new VFS(), []);
     const code = await ps(ctx);
     expect(code).toBe(0);
     expect(ctx.stdout.text).toContain('PID');
-    expect(ctx.stdout.text).toContain('sh');
-    expect(ctx.stdout.text).toContain('ps');
+    expect(ctx.stdout.text).toContain('shell');
   });
 
   it('shows background jobs', async () => {
-    const jobTable = new JobTable();
-    const ac = new AbortController();
-    jobTable.add('sleep 100', new Promise(() => {}), ac);
+    const registry = createProcessRegistry();
+    spawnSleep(registry);
     const { createPsCommand } = await import('../../src/commands/system/ps.js');
-    const ps = createPsCommand(jobTable);
-    const vfs = new VFS();
-    const ctx = createContext(vfs, []);
+    const ps = createPsCommand(registry);
+    const ctx = createContext(new VFS(), []);
     const code = await ps(ctx);
     expect(code).toBe(0);
     expect(ctx.stdout.text).toContain('sleep');
@@ -62,65 +69,56 @@ describe('ps', () => {
 
 describe('top', () => {
   it('shows system snapshot', async () => {
-    const jobTable = new JobTable();
     const { createTopCommand } = await import('../../src/commands/system/top.js');
-    const top = createTopCommand(jobTable);
-    const vfs = new VFS();
-    const ctx = createContext(vfs, []);
+    const top = createTopCommand(createProcessRegistry());
+    const ctx = createContext(new VFS(), []);
     const code = await top(ctx);
     expect(code).toBe(0);
     expect(ctx.stdout.text).toContain('top');
     expect(ctx.stdout.text).toContain('Tasks');
-    expect(ctx.stdout.text).toContain('sh');
+    expect(ctx.stdout.text).toContain('shell');
     expect(ctx.stdout.text).toContain('PID');
   });
 });
 
 describe('kill', () => {
   it('kills a job by %N', async () => {
-    const jobTable = new JobTable();
-    const ac = new AbortController();
-    jobTable.add('sleep 100', new Promise(() => {}), ac);
+    const registry = createProcessRegistry();
+    const { ac } = spawnSleep(registry);
     const { createKillCommand } = await import('../../src/commands/system/kill.js');
-    const kill = createKillCommand(jobTable);
-    const vfs = new VFS();
-    const ctx = createContext(vfs, ['%1']);
+    const kill = createKillCommand(registry);
+    const ctx = createContext(new VFS(), ['%1']);
     const code = await kill(ctx);
     expect(code).toBe(0);
     expect(ac.signal.aborted).toBe(true);
   });
 
   it('kills a job by PID', async () => {
-    const jobTable = new JobTable();
-    const ac = new AbortController();
-    jobTable.add('sleep 100', new Promise(() => {}), ac);
+    const registry = createProcessRegistry();
+    const { pid, ac } = spawnSleep(registry);
     const { createKillCommand } = await import('../../src/commands/system/kill.js');
-    const kill = createKillCommand(jobTable);
-    const vfs = new VFS();
-    // PID = jobId + 1 = 2
-    const ctx = createContext(vfs, ['2']);
+    const kill = createKillCommand(registry);
+    const ctx = createContext(new VFS(), [String(pid)]);
     const code = await kill(ctx);
     expect(code).toBe(0);
     expect(ac.signal.aborted).toBe(true);
   });
 
-  it('refuses to kill PID 1 (shell)', async () => {
-    const jobTable = new JobTable();
+  it('refuses to kill the shell', async () => {
+    const registry = createProcessRegistry();
+    const shellPid = registry.getAll().find((p) => p.command === 'shell')!.pid;
     const { createKillCommand } = await import('../../src/commands/system/kill.js');
-    const kill = createKillCommand(jobTable);
-    const vfs = new VFS();
-    const ctx = createContext(vfs, ['1']);
+    const kill = createKillCommand(registry);
+    const ctx = createContext(new VFS(), [String(shellPid)]);
     const code = await kill(ctx);
     expect(code).toBe(1);
     expect(ctx.stderr.text).toContain('not permitted');
   });
 
   it('lists signals with -l', async () => {
-    const jobTable = new JobTable();
     const { createKillCommand } = await import('../../src/commands/system/kill.js');
-    const kill = createKillCommand(jobTable);
-    const vfs = new VFS();
-    const ctx = createContext(vfs, ['-l']);
+    const kill = createKillCommand(createProcessRegistry());
+    const ctx = createContext(new VFS(), ['-l']);
     const code = await kill(ctx);
     expect(code).toBe(0);
     expect(ctx.stdout.text).toContain('TERM');
@@ -128,14 +126,21 @@ describe('kill', () => {
   });
 
   it('errors on non-existent job', async () => {
-    const jobTable = new JobTable();
     const { createKillCommand } = await import('../../src/commands/system/kill.js');
-    const kill = createKillCommand(jobTable);
-    const vfs = new VFS();
-    const ctx = createContext(vfs, ['%99']);
+    const kill = createKillCommand(createProcessRegistry());
+    const ctx = createContext(new VFS(), ['%99']);
     const code = await kill(ctx);
     expect(code).toBe(1);
-    expect(ctx.stderr.text).toContain('no such process');
+    expect(ctx.stderr.text).toContain('no such job');
+  });
+
+  it('errors on non-existent pid', async () => {
+    const { createKillCommand } = await import('../../src/commands/system/kill.js');
+    const kill = createKillCommand(createProcessRegistry());
+    const ctx = createContext(new VFS(), ['999']);
+    const code = await kill(ctx);
+    expect(code).toBe(1);
+    expect(ctx.stderr.text).toContain('No such process');
   });
 });
 

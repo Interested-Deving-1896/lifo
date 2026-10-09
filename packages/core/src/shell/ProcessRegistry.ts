@@ -331,15 +331,18 @@ export class ProcessRegistry {
   }
 
   /**
-   * Clear all processes except shell (useful for testing).
+   * Clear all processes except shells (useful for testing).
    */
   reset(): void {
-    const shell = this.processes.get(1);
+    // Shells register themselves via spawn() and so have ordinary PIDs (not
+    // PID 1); keep them and restart numbering after them so a new process
+    // never reuses a shell's PID.
+    const shells = [...this.processes.values()].filter((p) => p.command === 'shell');
     this.processes.clear();
-    if (shell) {
-      this.processes.set(1, shell);
+    for (const shell of shells) {
+      this.processes.set(shell.pid, shell);
     }
-    this.nextPid = 2;
+    this.nextPid = Math.max(1, ...shells.map((p) => p.pid)) + 1;
     this.nextJobId = 1;
   }
 }
