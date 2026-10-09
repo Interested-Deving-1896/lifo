@@ -1,3 +1,10 @@
+## 0.10.22
+
+### Patch Changes
+
+- Editor preview: `tailwind.config.js` files that build their theme from top-level helpers (e.g. font sizes scaled from `text-scale.json` via `require('tailwindcss/defaultTheme')`) no longer lose the whole theme. The extractor sliced out only the `module.exports` literal, so the helpers were undefined, the eval threw, and it fell back to `{darkMode:"class"}`, dropping every color, font and radius on the artboard. It now runs the whole file as CommonJS first: relative `.json` comes from the VFS, and `tailwindcss/*` modules are fetched from the package server at the project's tailwindcss version. If that fails it falls back to the old slicer.
+- `ProcessRegistry.reset()` keeps every shell process and numbers new processes after them, instead of keeping only PID 1 (which shells no longer have) and reusing the shell's PID.
+
 ## 0.10.21
 
 ### Patch Changes
