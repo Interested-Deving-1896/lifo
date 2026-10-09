@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { extractTailwindConfig } from '../../src/commands/system/browser-metro.js';
+import {
+  extractTailwindConfig,
+  loadTailwindConfigModules,
+  projectTailwindVersion,
+} from '../../src/commands/system/browser-metro.js';
 
 /**
  * extractTailwindConfig finds the balanced `module.exports = {...}` block by
@@ -161,12 +165,23 @@ module.exports = {
   },
 };`;
 
+  // A slice of tailwindcss@3 defaultTheme; real runs fetch the whole module.
+  const modules = {
+    'tailwindcss/defaultTheme': {
+      fontSize: {
+        base: ['1rem', { lineHeight: '1.5rem' }],
+        '5xl': ['3rem', { lineHeight: '1' }],
+      },
+      lineHeight: { 6: '1.5rem', tight: '1.25' },
+    },
+  };
+
   const parse = (out: string) =>
     JSON.parse(out.slice('tailwind.config={darkMode:"class",theme:{extend:'.length, -'}};'.length));
 
   it('keeps the whole theme and applies the scale from the required json', () => {
     const out = extractTailwindConfig(LIBREATE, (p) =>
-      p === './text-scale.json' ? '{ "scale": 1.1 }' : undefined);
+      p === './text-scale.json' ? '{ "scale": 1.1 }' : undefined, modules);
     expect(out).not.toBe(FALLBACK);
     const extend = parse(out);
     expect(extend.colors.background).toBe('rgb(var(--background) / <alpha-value>)');
@@ -181,8 +196,14 @@ module.exports = {
   });
 
   it('an unreadable local require falls back instead of emitting NaN sizes', () => {
-    const out = extractTailwindConfig(LIBREATE, () => undefined);
+    const out = extractTailwindConfig(LIBREATE, () => undefined, modules);
     expect(out).not.toContain('NaN');
+  });
+
+  it('a tailwindcss module that failed to load falls back instead of emitting undefined', () => {
+    const out = extractTailwindConfig(LIBREATE, () => '{ "scale": 1.1 }', {});
+    expect(out).not.toContain('NaN');
+    expect(out).not.toContain('undefined');
   });
 
   it('TypeScript configs still go through the slicer', () => {
@@ -191,5 +212,41 @@ export default {
   theme: { extend: { colors: { brand: '#ec305a' } } },
 } satisfies Config;`;
     expect(extractTailwindConfig(config)).toContain('#ec305a');
+  });
+});
+
+describe('loadTailwindConfigModules', () => {
+  // The package server's bundle shape: a self-contained CJS wrapper.
+  const bundle = (value: string) =>
+    `var __module = (() => ({ default: ${value} }))();\nif (typeof __module !== "undefined") { module.exports = __module; }`;
+
+  it("fetches only the tailwindcss modules the config requires, at the project's version", async () => {
+    const urls: string[] = [];
+    const fetchFn = (async (url: string) => {
+      urls.push(url);
+      return new Response(bundle('{ fontSize: { base: ["1rem", {}] } }'));
+    }) as unknown as typeof fetch;
+    const modules = await loadTailwindConfigModules(
+      `const t = require('tailwindcss/defaultTheme');\nmodule.exports = { presets: [require('nativewind/preset')] };`,
+      '^3.4.17',
+      fetchFn,
+    );
+    expect(urls).toEqual(['https://esm.reactnative.run/pkg/tailwindcss@%5E3.4.17/defaultTheme']);
+    expect(modules['tailwindcss/defaultTheme']).toEqual({ fontSize: { base: ['1rem', {}] } });
+  });
+
+  it('leaves out a module the server could not serve', async () => {
+    const fetchFn = (async () => new Response('nope', { status: 500 })) as unknown as typeof fetch;
+    const modules = await loadTailwindConfigModules(`require('tailwindcss/colors')`, '3', fetchFn);
+    expect(modules).toEqual({});
+  });
+});
+
+describe('projectTailwindVersion', () => {
+  it('reads dependencies, then devDependencies, else 3', () => {
+    expect(projectTailwindVersion('{"dependencies":{"tailwindcss":"^3.4.17"}}')).toBe('^3.4.17');
+    expect(projectTailwindVersion('{"devDependencies":{"tailwindcss":"3.3.2"}}')).toBe('3.3.2');
+    expect(projectTailwindVersion('{}')).toBe('3');
+    expect(projectTailwindVersion(undefined)).toBe('3');
   });
 });
