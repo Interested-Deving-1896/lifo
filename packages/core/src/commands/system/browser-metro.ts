@@ -198,11 +198,92 @@ ${headExtra}${editorBlock}<script>(function(){var B=${bundleVersion},H=${hmrSeq}
 }
 
 /**
+ * The parts of Tailwind v3's `tailwindcss/defaultTheme` that configs commonly
+ * build on (e.g. scaling every font size). Inlined because the project's
+ * node_modules aren't in the VFS. Values copied from tailwindcss@3.4.19.
+ */
+const TAILWIND_DEFAULT_THEME = {
+  fontSize: {
+    xs: ['0.75rem', { lineHeight: '1rem' }],
+    sm: ['0.875rem', { lineHeight: '1.25rem' }],
+    base: ['1rem', { lineHeight: '1.5rem' }],
+    lg: ['1.125rem', { lineHeight: '1.75rem' }],
+    xl: ['1.25rem', { lineHeight: '1.75rem' }],
+    '2xl': ['1.5rem', { lineHeight: '2rem' }],
+    '3xl': ['1.875rem', { lineHeight: '2.25rem' }],
+    '4xl': ['2.25rem', { lineHeight: '2.5rem' }],
+    '5xl': ['3rem', { lineHeight: '1' }],
+    '6xl': ['3.75rem', { lineHeight: '1' }],
+    '7xl': ['4.5rem', { lineHeight: '1' }],
+    '8xl': ['6rem', { lineHeight: '1' }],
+    '9xl': ['8rem', { lineHeight: '1' }],
+  },
+  lineHeight: {
+    3: '.75rem', 4: '1rem', 5: '1.25rem', 6: '1.5rem', 7: '1.75rem', 8: '2rem', 9: '2.25rem', 10: '2.5rem',
+    none: '1', tight: '1.25', snug: '1.375', normal: '1.5', relaxed: '1.625', loose: '2',
+  },
+  fontFamily: {
+    sans: ['ui-sans-serif', 'system-ui', 'sans-serif', '"Apple Color Emoji"', '"Segoe UI Emoji"', '"Segoe UI Symbol"', '"Noto Color Emoji"'],
+    serif: ['ui-serif', 'Georgia', 'Cambria', '"Times New Roman"', 'Times', 'serif'],
+    mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', '"Liberation Mono"', '"Courier New"', 'monospace'],
+  },
+};
+
+/**
+ * Run the whole config file as a CommonJS module so top-level helpers
+ * (`const scaled = ...`, `...scaledFontSizes`) are in scope. Relative
+ * `.json` requires are read through `readFile`; `tailwindcss/defaultTheme`
+ * gets the inlined table above; any other package require gets `{}`. Returns the
+ * exported config, or undefined if the file doesn't run as plain JS (e.g. TS).
+ */
+function evaluateTailwindConfigModule(
+  content: string,
+  readFile?: (relPath: string) => string | undefined,
+): any {
+  const shimRequire = (id: string): unknown => {
+    if (id === 'tailwindcss/defaultTheme' || id === 'tailwindcss/defaultTheme.js') return TAILWIND_DEFAULT_THEME;
+    if (id.startsWith('.')) {
+      // A local file we can't load would leave the helpers computing NaN
+      // sizes; fail the run so the slicer fallback is used instead.
+      const text = id.endsWith('.json') ? readFile?.(id) : undefined;
+      if (text === undefined) throw new Error('cannot load ' + id);
+      return JSON.parse(text);
+    }
+    return {};
+  };
+  const module = { exports: {} as any };
+  try {
+    // eslint-disable-next-line no-new-func
+    new Function('module', 'exports', 'require', 'process', content)(
+      module, module.exports, shimRequire, { env: {} },
+    );
+  } catch {
+    return undefined;
+  }
+  return module.exports?.default ?? module.exports;
+}
+
+function tailwindCdnConfigScript(extend: unknown): string {
+  return 'tailwind.config={darkMode:"class",theme:{extend:' + JSON.stringify(extend) + '}};';
+}
+
+/**
  * Extract Tailwind theme config from a tailwind.config.js/ts file content.
  * Returns a script string for the Tailwind CDN runtime configuration.
+ * `readFile` resolves paths relative to the config (for `require('./x.json')`).
  * Exported for tests.
  */
-export function extractTailwindConfig(content: string): string {
+export function extractTailwindConfig(
+  content: string,
+  readFile?: (relPath: string) => string | undefined,
+): string {
+  // Configs that compute their theme from top-level helpers only work when
+  // the whole file runs; slicing out module.exports leaves those names
+  // undefined and silently drops the entire theme.
+  const evaluated = evaluateTailwindConfigModule(content, readFile)?.theme?.extend;
+  if (evaluated) {
+    try { return tailwindCdnConfigScript(evaluated); } catch { /* fall through */ }
+  }
   try {
     let configString = '';
     let moduleExportsIndex = content.indexOf('module.exports');
@@ -241,7 +322,7 @@ export function extractTailwindConfig(content: string): string {
     const configObj = (0, eval)('(' + cleaned + ')');
     const extend = configObj?.theme?.extend;
     if (!extend) return 'tailwind.config={darkMode:"class"}';
-    return 'tailwind.config={darkMode:"class",theme:{extend:' + JSON.stringify(extend) + '}};';
+    return tailwindCdnConfigScript(extend);
   } catch {
     return 'tailwind.config={darkMode:"class"}';
   }
@@ -344,7 +425,14 @@ export function createBrowserMetroCommand(kernel: Kernel): Command {
         const absPath = dir + '/' + twPath;
         try {
           const twContent = decoder.decode(kernel.vfs.readFile(absPath) as Uint8Array);
-          if (twContent) { tailwindConfigScript = extractTailwindConfig(twContent); break; }
+          if (twContent) {
+            const readRelative = (relPath: string): string | undefined => {
+              try { return decoder.decode(kernel.vfs.readFile(dir + '/' + relPath.replace(/^\.\//, '')) as Uint8Array); }
+              catch { return undefined; }
+            };
+            tailwindConfigScript = extractTailwindConfig(twContent, readRelative);
+            break;
+          }
         } catch { /* file doesn't exist */ }
       }
       editorHeadBlock = buildEditorHeadBlock(ctx.env, tailwindConfigScript);

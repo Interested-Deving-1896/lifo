@@ -108,3 +108,88 @@ module.exports = {
     expect(extractTailwindConfig('module.exports = {')).toBe(FALLBACK);
   });
 });
+
+/**
+ * Configs that compute their theme from top-level helpers. The old extractor
+ * sliced out only the module.exports literal, so `...scaledFontSizes` and
+ * `scaled('10px')` were undefined there, the eval threw, and the ENTIRE theme
+ * (colors, fonts, radii) was silently dropped. Device builds run the real
+ * config, so only the artboard lost its styling.
+ */
+describe('extractTailwindConfig — configs built from top-level helpers', () => {
+  // Trimmed from LibreAte (project 6YuOloHrN3WIW8FhNVZrk); helpers verbatim.
+  const LIBREATE = `const defaultTheme = require('tailwindcss/defaultTheme');
+
+// App-wide text scale (see src/lib/textScale.ts for the why).
+const { scale: TEXT_SCALE } = require('./text-scale.json');
+
+/** Multiply a rem/px length by the text scale; unitless values pass through. */
+const scaled = (value) =>
+  String(value).replace(
+    /^([\\d.]+)(rem|px)$/,
+    (_, n, unit) => \`\${+(n * TEXT_SCALE).toFixed(4)}\${unit}\`,
+  );
+
+const scaledFontSizes = Object.fromEntries(
+  Object.entries(defaultTheme.fontSize).map(([name, [size, opts]]) => [
+    name,
+    [scaled(size), { ...opts, lineHeight: scaled(opts.lineHeight) }],
+  ]),
+);
+const scaledLineHeights = Object.fromEntries(
+  Object.entries(defaultTheme.lineHeight).map(([name, value]) => [name, scaled(value)]),
+);
+
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  darkMode: process.env.DARK_MODE ? process.env.DARK_MODE : 'class',
+  content: ['./app/**/*.{html,js,jsx,ts,tsx,mdx}'],
+  presets: [require('nativewind/preset')],
+  important: 'html',
+  theme: {
+    extend: {
+      borderRadius: { DEFAULT: 'var(--radius)' },
+      colors: { background: 'rgb(var(--background) / <alpha-value>)' },
+      fontFamily: { 'body': ['Inter_400Regular'] },
+      fontSize: {
+        ...scaledFontSizes,
+        '2xs': scaled('10px'),
+        'field': scaled('1rem'),
+      },
+      lineHeight: scaledLineHeights,
+    },
+  },
+};`;
+
+  const parse = (out: string) =>
+    JSON.parse(out.slice('tailwind.config={darkMode:"class",theme:{extend:'.length, -'}};'.length));
+
+  it('keeps the whole theme and applies the scale from the required json', () => {
+    const out = extractTailwindConfig(LIBREATE, (p) =>
+      p === './text-scale.json' ? '{ "scale": 1.1 }' : undefined);
+    expect(out).not.toBe(FALLBACK);
+    const extend = parse(out);
+    expect(extend.colors.background).toBe('rgb(var(--background) / <alpha-value>)');
+    expect(extend.fontFamily.body).toEqual(['Inter_400Regular']);
+    expect(extend.borderRadius.DEFAULT).toBe('var(--radius)');
+    expect(extend.fontSize.base).toEqual(['1.1rem', { lineHeight: '1.65rem' }]);
+    expect(extend.fontSize['5xl']).toEqual(['3.3rem', { lineHeight: '1' }]);
+    expect(extend.fontSize['2xs']).toBe('11px');
+    expect(extend.fontSize.field).toBe('1.1rem');
+    expect(extend.lineHeight['6']).toBe('1.65rem');
+    expect(extend.lineHeight.tight).toBe('1.25');
+  });
+
+  it('an unreadable local require falls back instead of emitting NaN sizes', () => {
+    const out = extractTailwindConfig(LIBREATE, () => undefined);
+    expect(out).not.toContain('NaN');
+  });
+
+  it('TypeScript configs still go through the slicer', () => {
+    const config = `import type { Config } from 'tailwindcss';
+export default {
+  theme: { extend: { colors: { brand: '#ec305a' } } },
+} satisfies Config;`;
+    expect(extractTailwindConfig(config)).toContain('#ec305a');
+  });
+});
