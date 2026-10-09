@@ -198,50 +198,62 @@ ${headExtra}${editorBlock}<script>(function(){var B=${bundleVersion},H=${hmrSeq}
 }
 
 /**
- * The parts of Tailwind v3's `tailwindcss/defaultTheme` that configs commonly
- * build on (e.g. scaling every font size). Inlined because the project's
- * node_modules aren't in the VFS. Values copied from tailwindcss@3.4.19.
+ * Load the `tailwindcss/*` modules a config requires (`defaultTheme`,
+ * `colors`, ...) from the package server, at the tailwindcss version the
+ * project's package.json declares, so helper-built themes compute from the
+ * same values the device build uses. A module that can't be fetched or run
+ * is left out; the config then fails to run and the slicer fallback is used.
+ * Exported for tests.
  */
-const TAILWIND_DEFAULT_THEME = {
-  fontSize: {
-    xs: ['0.75rem', { lineHeight: '1rem' }],
-    sm: ['0.875rem', { lineHeight: '1.25rem' }],
-    base: ['1rem', { lineHeight: '1.5rem' }],
-    lg: ['1.125rem', { lineHeight: '1.75rem' }],
-    xl: ['1.25rem', { lineHeight: '1.75rem' }],
-    '2xl': ['1.5rem', { lineHeight: '2rem' }],
-    '3xl': ['1.875rem', { lineHeight: '2.25rem' }],
-    '4xl': ['2.25rem', { lineHeight: '2.5rem' }],
-    '5xl': ['3rem', { lineHeight: '1' }],
-    '6xl': ['3.75rem', { lineHeight: '1' }],
-    '7xl': ['4.5rem', { lineHeight: '1' }],
-    '8xl': ['6rem', { lineHeight: '1' }],
-    '9xl': ['8rem', { lineHeight: '1' }],
-  },
-  lineHeight: {
-    3: '.75rem', 4: '1rem', 5: '1.25rem', 6: '1.5rem', 7: '1.75rem', 8: '2rem', 9: '2.25rem', 10: '2.5rem',
-    none: '1', tight: '1.25', snug: '1.375', normal: '1.5', relaxed: '1.625', loose: '2',
-  },
-  fontFamily: {
-    sans: ['ui-sans-serif', 'system-ui', 'sans-serif', '"Apple Color Emoji"', '"Segoe UI Emoji"', '"Segoe UI Symbol"', '"Noto Color Emoji"'],
-    serif: ['ui-serif', 'Georgia', 'Cambria', '"Times New Roman"', 'Times', 'serif'],
-    mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', '"Liberation Mono"', '"Courier New"', 'monospace'],
-  },
-};
+export async function loadTailwindConfigModules(
+  content: string,
+  tailwindVersion: string,
+  fetchFn: typeof fetch = fetch,
+): Promise<Record<string, unknown>> {
+  const ids = new Set<string>();
+  for (const m of content.matchAll(/require\(\s*['"](tailwindcss\/[\w./-]+)['"]\s*\)/g)) ids.add(m[1]);
+  const modules: Record<string, unknown> = {};
+  await Promise.all([...ids].map(async (id) => {
+    const subpath = id.slice('tailwindcss/'.length).replace(/\.js$/, '');
+    try {
+      const res = await fetchFn(`${PACKAGE_SERVER}/pkg/tailwindcss@${encodeURIComponent(tailwindVersion)}/${subpath}`);
+      if (!res.ok) return;
+      const mod = { exports: {} as any };
+      // eslint-disable-next-line no-new-func
+      new Function('module', 'exports', 'require', await res.text())(mod, mod.exports, () => ({}));
+      modules[id] = mod.exports?.default ?? mod.exports;
+    } catch { /* leave it out */ }
+  }));
+  return modules;
+}
+
+/** The tailwindcss version range a project's package.json declares, or '3'. */
+export function projectTailwindVersion(packageJson: string | undefined): string {
+  try {
+    const pkg = JSON.parse(packageJson ?? '');
+    return pkg.dependencies?.tailwindcss || pkg.devDependencies?.tailwindcss || '3';
+  } catch {
+    return '3';
+  }
+}
 
 /**
  * Run the whole config file as a CommonJS module so top-level helpers
  * (`const scaled = ...`, `...scaledFontSizes`) are in scope. Relative
- * `.json` requires are read through `readFile`; `tailwindcss/defaultTheme`
- * gets the inlined table above; any other package require gets `{}`. Returns the
+ * `.json` requires are read through `readFile`; package requires come from
+ * `modules` (see loadTailwindConfigModules) or get `{}`. Returns the
  * exported config, or undefined if the file doesn't run as plain JS (e.g. TS).
  */
 function evaluateTailwindConfigModule(
   content: string,
   readFile?: (relPath: string) => string | undefined,
+  modules: Record<string, unknown> = {},
 ): any {
   const shimRequire = (id: string): unknown => {
-    if (id === 'tailwindcss/defaultTheme' || id === 'tailwindcss/defaultTheme.js') return TAILWIND_DEFAULT_THEME;
+    if (id in modules) return modules[id];
+    // A tailwindcss module we couldn't load would leave helpers reading
+    // undefined; fail the run so the slicer fallback is used instead.
+    if (id.startsWith('tailwindcss/')) throw new Error('cannot load ' + id);
     if (id.startsWith('.')) {
       // A local file we can't load would leave the helpers computing NaN
       // sizes; fail the run so the slicer fallback is used instead.
@@ -270,17 +282,19 @@ function tailwindCdnConfigScript(extend: unknown): string {
 /**
  * Extract Tailwind theme config from a tailwind.config.js/ts file content.
  * Returns a script string for the Tailwind CDN runtime configuration.
- * `readFile` resolves paths relative to the config (for `require('./x.json')`).
+ * `readFile` resolves paths relative to the config (for `require('./x.json')`);
+ * `modules` holds preloaded package modules (see loadTailwindConfigModules).
  * Exported for tests.
  */
 export function extractTailwindConfig(
   content: string,
   readFile?: (relPath: string) => string | undefined,
+  modules?: Record<string, unknown>,
 ): string {
   // Configs that compute their theme from top-level helpers only work when
   // the whole file runs; slicing out module.exports leaves those names
   // undefined and silently drops the entire theme.
-  const evaluated = evaluateTailwindConfigModule(content, readFile)?.theme?.extend;
+  const evaluated = evaluateTailwindConfigModule(content, readFile, modules)?.theme?.extend;
   if (evaluated) {
     try { return tailwindCdnConfigScript(evaluated); } catch { /* fall through */ }
   }
@@ -430,7 +444,10 @@ export function createBrowserMetroCommand(kernel: Kernel): Command {
               try { return decoder.decode(kernel.vfs.readFile(dir + '/' + relPath.replace(/^\.\//, '')) as Uint8Array); }
               catch { return undefined; }
             };
-            tailwindConfigScript = extractTailwindConfig(twContent, readRelative);
+            const modules = await loadTailwindConfigModules(
+              twContent, projectTailwindVersion(readRelative('package.json')),
+            );
+            tailwindConfigScript = extractTailwindConfig(twContent, readRelative, modules);
             break;
           }
         } catch { /* file doesn't exist */ }
