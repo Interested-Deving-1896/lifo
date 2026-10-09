@@ -62,6 +62,10 @@ export class SandboxCommandsImpl implements ISandboxCommands {
         onStdout: options?.onStdout,
         onStderr: options?.onStderr,
         stdin: options?.stdin,
+        // Without this the controller above was wired to nothing: abort and timeout were no-ops,
+        // and because run() is a serial queue every later command waited behind the one that
+        // never stopped.
+        signal: abortController?.signal,
       });
 
       return result;

@@ -19,6 +19,8 @@ export interface ExecuteOptions {
   onStdout?: (data: string) => void;
   onStderr?: (data: string) => void;
   stdin?: string;
+  /** Aborts the running command — the same signal `kill <pid>` delivers to it. */
+  signal?: AbortSignal;
 }
 
 export class Shell {
@@ -216,6 +218,7 @@ export class Shell {
       const exitCode = await this.interpreter.executeLine(cmd, terminalStdin, {
         stdout: stdoutStream,
         stderr: stderrStream,
+        abortSignal: options?.signal,
       });
       return { stdout: stdoutBuf, stderr: stderrBuf, exitCode };
     } catch (e) {

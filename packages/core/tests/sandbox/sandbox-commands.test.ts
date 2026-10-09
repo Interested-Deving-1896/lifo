@@ -72,6 +72,61 @@ describe('SandboxCommands', () => {
     });
   });
 
+  describe('abort signal and timeout', () => {
+    /** Runs until its signal aborts — the shape of a long-lived server command (browser-metro). */
+    const registerServe = (sb: Sandbox) =>
+      sb.commands.register('serve-forever', async (ctx) => {
+        ctx.stdout.write('serving\n');
+        await new Promise<void>((resolve) => {
+          if (ctx.signal.aborted) return resolve();
+          ctx.signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+        ctx.stdout.write('stopped\n');
+        return 130;
+      });
+
+    it('aborting the signal stops the running command', async () => {
+      sandbox = await Sandbox.create();
+      registerServe(sandbox);
+      const ac = new AbortController();
+      const run = sandbox.commands.run('serve-forever', { signal: ac.signal });
+      await new Promise((r) => setTimeout(r, 20));
+      ac.abort();
+      const result = await Promise.race([
+        run,
+        new Promise<'hung'>((r) => setTimeout(() => r('hung'), 2000)),
+      ]);
+      expect(result).not.toBe('hung');
+      expect((result as { stdout: string }).stdout).toContain('stopped');
+    });
+
+    it('a command queued behind an aborted one runs', async () => {
+      sandbox = await Sandbox.create();
+      registerServe(sandbox);
+      const ac = new AbortController();
+      void sandbox.commands.run('serve-forever', { signal: ac.signal });
+      await new Promise((r) => setTimeout(r, 20));
+      const next = sandbox.commands.run('echo next');
+      ac.abort();
+      const result = await Promise.race([
+        next,
+        new Promise<'hung'>((r) => setTimeout(() => r('hung'), 2000)),
+      ]);
+      expect(result).not.toBe('hung');
+      expect((result as { stdout: string }).stdout).toBe('next\n');
+    });
+
+    it('timeout stops the running command', async () => {
+      sandbox = await Sandbox.create();
+      registerServe(sandbox);
+      const result = await Promise.race([
+        sandbox.commands.run('serve-forever', { timeout: 50 }),
+        new Promise<'hung'>((r) => setTimeout(() => r('hung'), 2000)),
+      ]);
+      expect(result).not.toBe('hung');
+    });
+  });
+
   describe('complex commands', () => {
     it('variable expansion', async () => {
       sandbox = await Sandbox.create();
