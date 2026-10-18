@@ -511,6 +511,24 @@ export function createBrowserMetroCommand(kernel: Kernel): Command {
     let buildError: string | null = null;
     const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+    // Watch BEFORE the first build. A cold first build waits on the package server (minutes for a
+    // large Expo app), and anything written meanwhile, e.g. the editor or agent updating
+    // package.json, used to be lost: the watcher only started after the build, and the build
+    // checked imports against the stale package.json ("Unable to resolve ... from ..."). Writes
+    // during the build queue in `pending` (`building` holds flush back) and replay right after it.
+    const decoder = new TextDecoder();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let building = true;
+    let pending = new Set<string>();
+    let flushImpl: () => Promise<void> = async () => {};
+    const flush = (): Promise<void> => flushImpl();
+    const unwatch = kernel.vfs.watch((event: { path?: string; oldPath?: string }) => {
+      if (event.path) pending.add(event.path);
+      if (event.oldPath) pending.add(event.oldPath);
+      clearTimeout(timer);
+      timer = setTimeout(() => { void flush(); }, 200);
+    });
+
     ctx.stdout.write(`browser-metro: bundling ${dir} (packages from ${PACKAGE_SERVER})…\n`);
     const t0 = Date.now();
     try {
@@ -551,12 +569,7 @@ export function createBrowserMetroCommand(kernel: Kernel): Command {
     kernel.portRegistry.set(port, handler);
 
     // ── file-watch → incremental rebuild → HMR (or reload) ───────────────────
-    const decoder = new TextDecoder();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let building = false;
-    let pending = new Set<string>();
-
-    const flush = async (): Promise<void> => {
+    flushImpl = async (): Promise<void> => {
       if (building) return;                 // a rebuild is running; the timer will re-fire
       const paths = [...pending]; pending = new Set();
       const changes: FileChange[] = [];
@@ -637,12 +650,9 @@ export function createBrowserMetroCommand(kernel: Kernel): Command {
       }
     };
 
-    const unwatch = kernel.vfs.watch((event: { path?: string; oldPath?: string }) => {
-      if (event.path) pending.add(event.path);
-      if (event.oldPath) pending.add(event.oldPath);
-      clearTimeout(timer);
-      timer = setTimeout(() => { void flush(); }, 200);
-    });
+    // The first build is done: release the watcher, and replay what was written during it.
+    building = false;
+    if (pending.size) { clearTimeout(timer); timer = setTimeout(() => { void flush(); }, 50); }
 
     // Run until the command is aborted (Ctrl-C / kill).
     await new Promise<void>((r) => {
