@@ -1,3 +1,9 @@
+## 0.10.24
+
+### Patch Changes
+
+- `browser-metro` watches the project before its first build. A cold first build waits on the package server (minutes for a large Expo app), and anything written meanwhile was lost because the watcher only started after it; when that write was `package.json`, the build checked imports against the stale file ("Unable to resolve \"expo-crypto\" from \"src/lib/id.ts\"") until a reload. Writes during the first build now queue and replay right after it.
+
 ## 0.10.23
 
 ### Patch Changes
