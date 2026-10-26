@@ -995,6 +995,56 @@ describe('http.createServer via node command', () => {
     expect(ctx.stdout.text).toContain('Hello from virtual server');
   });
 
+  it('fetch to localhost reaches an async in-VM server', async () => {
+    // An API reading its database at SUPABASE_URL=http://localhost:54321: the
+    // browser's fetch would go to the real localhost; it must reach the VM's server.
+    const node = createNodeCommand(kernel);
+    vfs.writeFile('/tmp/test.js', `
+      const http = require('http');
+      const server = http.createServer((req, res) => {
+        let body = '';
+        req.on('data', (c) => { body += c; });
+        req.on('end', () => {
+          setTimeout(() => {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ path: req.url, body }));
+          }, 5);
+        });
+      });
+      server.listen(5100, async () => {
+        const res = await fetch('http://localhost:5100/rest/v1/todos?select=*', { method: 'POST', body: 'hi' });
+        console.log(res.status + ' ' + (await res.text()));
+        server.close();
+      });
+    `);
+    const ctx = createContext(vfs, ['/tmp/test.js']);
+    const code = await node(ctx);
+    expect(code).toBe(0);
+    expect(ctx.stdout.text).toContain('200 {"path":"/rest/v1/todos?select=*","body":"hi"}');
+  });
+
+  it('http.get to localhost waits for an async in-VM server', async () => {
+    const node = createNodeCommand(kernel);
+    vfs.writeFile('/tmp/test.js', `
+      const http = require('http');
+      const server = http.createServer((req, res) => {
+        setTimeout(() => res.end('answered later'), 5);
+      });
+      server.listen(5101, () => {
+        http.get('http://localhost:5101/', (res) => {
+          res.on('data', (data) => {
+            console.log(data);
+            server.close();
+          });
+        });
+      });
+    `);
+    const ctx = createContext(vfs, ['/tmp/test.js']);
+    const code = await node(ctx);
+    expect(code).toBe(0);
+    expect(ctx.stdout.text).toContain('answered later');
+  });
+
   it('curl connects to virtual server via portRegistry', async () => {
     // First, manually register a handler in portRegistry
     portRegistry.set(6000, (req, res) => {

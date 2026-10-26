@@ -183,6 +183,36 @@ export async function dispatchRequest(
 }
 
 /**
+ * `dispatchRequest` as a fetch `Response`: the shape `sandbox.fetch` hands the
+ * host and the VM's own `fetch` hands a script calling one of its servers.
+ *
+ * Restores `content-length` for a body (fetch omits it, and in-VM body parsers
+ * such as express.json's hasBody() need it), and gives 204/205/304 a null body,
+ * since `Response` throws when one of those carries a body.
+ */
+export async function dispatchFetch(
+	portRegistry: Map<number, VirtualRequestHandler>,
+	port: number,
+	init: DispatchInit,
+	options: DispatchOptions = {},
+): Promise<Response> {
+	const headers = { ...(init.headers ?? {}) };
+	if (init.body != null && headers['content-length'] == null) {
+		headers['content-length'] = String(
+			typeof init.body === 'string' ? textEncoder.encode(init.body).length : init.body.length,
+		);
+	}
+
+	const res = await dispatchRequest(portRegistry, port, { ...init, headers }, options);
+
+	const nullBody = res.statusCode === 204 || res.statusCode === 205 || res.statusCode === 304;
+	return new Response(nullBody ? null : (res.bodyBytes as unknown as BodyInit), {
+		status: res.statusCode,
+		headers: res.headers,
+	});
+}
+
+/**
  * Resolve once a server is listening on `port`, or reject on timeout.
  *
  * "Bound" is the only readiness signal the port registry has — it cannot tell
