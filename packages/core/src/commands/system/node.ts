@@ -61,6 +61,7 @@ function makeNodeGlobal(overrides: Record<string, unknown>): Record<string, unkn
 }
 
 import { makeProxyingFetch } from '../../node-compat/proxy-fetch.js';
+import { makeLoopbackFetch } from '../../kernel/network/loopback-fetch.js';
 import { createOxideScanner } from '../../node-compat/tailwind-oxide.js';
 import { createSwcCore } from '../../node-compat/swc.js';
 import { createEsbuild } from '../../node-compat/esbuild.js';
@@ -1052,8 +1053,10 @@ function createNodeImpl(kernelOrPortRegistry?: Kernel | Map<number, VirtualReque
 		// Count in-flight fetches so the completion wait below knows the run still
 		// has pending async work (e.g. create-expo-app fetching SDK versions).
 		let pendingAsync = 0;
+		// Loopback requests to a port bound in this VM (an API reading the tinbase
+		// on localhost:54321) go to that in-VM server, not the real localhost.
 		const proxying = typeof realFetch === 'function'
-			? makeProxyingFetch(realFetch.bind(globalThis), nodeCtx.env)
+			? makeLoopbackFetch(portRegistry, makeProxyingFetch(realFetch.bind(globalThis), nodeCtx.env))
 			: realFetch;
 		const nodeFetch = (typeof proxying === 'function'
 			? ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {

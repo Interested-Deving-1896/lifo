@@ -2,6 +2,7 @@ import { EventEmitter } from './events.js';
 import { Buffer } from './buffer.js';
 import type { VirtualRequestHandler, VirtualResponse } from '../kernel/index.js';
 import { makeProxyingFetch } from './proxy-fetch.js';
+import { dispatchRequest, LIFO_HEADER } from '../kernel/network/dispatch.js';
 
 /**
  * @deprecated `_donePromise` now lives on `VirtualResponse` itself, so this
@@ -225,34 +226,32 @@ class ClientRequest extends EventEmitter {
 
     // Check if target is a virtual server
     if (this.portRegistry && port && (host === 'localhost' || host === '127.0.0.1')) {
-      const handler = this.portRegistry.get(port);
-      if (handler) {
-        const built = this.buildBody();
-        const vReq = {
+      if (this.portRegistry.has(port)) {
+        // dispatchRequest waits for an async server (Express, tinbase) to finish
+        // writing; calling the handler directly answered those with an empty 200.
+        const headers: Record<string, string> = {};
+        for (const [k, v] of Object.entries(this.options.headers || {})) {
+          if (v != null) headers[k] = Array.isArray(v) ? v.join(', ') : String(v);
+        }
+        const res = await dispatchRequest(this.portRegistry, port, {
           method: this.options.method || 'GET',
           url: path,
-          headers: this.options.headers || {},
-          body: typeof built === 'string' ? built : built ? new TextDecoder().decode(built) : '',
-        };
-        const vRes = {
-          statusCode: 200,
-          headers: {} as Record<string, string>,
-          body: '',
-        };
-
-        try {
-          handler(vReq, vRes);
-
-          const msg = new IncomingMessage(vRes.statusCode, 'OK', vRes.headers);
-          this.emit('response', msg);
-
-          queueMicrotask(() => {
-            msg.emit('data', vRes.body);
-            msg.emit('end');
-          });
-        } catch (e) {
-          this.emit('error', e);
+          headers,
+          body: this.buildBody(),
+        });
+        if (this.aborted) return;
+        if (res.headers[LIFO_HEADER] === 'handler-error') {
+          this.emit('error', new Error(res.body));
+          return;
         }
+
+        const msg = new IncomingMessage(res.statusCode, 'OK', res.headers);
+        this.emit('response', msg);
+
+        queueMicrotask(() => {
+          msg.emit('data', res.body);
+          msg.emit('end');
+        });
         return;
       }
     }

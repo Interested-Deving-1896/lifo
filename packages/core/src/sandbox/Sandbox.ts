@@ -28,7 +28,7 @@ import type { SandboxOptions, SandboxCommands, SandboxFs, SnapshotOptions } from
 import { SandboxFsImpl } from './SandboxFs.js';
 import { SandboxCommandsImpl } from './SandboxCommands.js';
 import { HeadlessTerminal } from './HeadlessTerminal.js';
-import { dispatchRequest, waitForPort } from '../kernel/network/dispatch.js';
+import { dispatchFetch, waitForPort } from '../kernel/network/dispatch.js';
 import type { SnapshotMetadata } from '../kernel/vfs/snapshot.js';
 import { connectVmWebSocket } from './vm-websocket.js';
 import type { SandboxConnectOptions, VmWebSocket } from './vm-websocket.js';
@@ -349,27 +349,12 @@ export class Sandbox {
 				? init.body
 				: new Uint8Array(init.body as ArrayBuffer);
 
-		// In-VM body parsers (body-parser/express.json's hasBody()) need
-		// Content-Length; fetch omits it, so restore it as the SW/nosw shims do.
-		if (body != null && headers['content-length'] == null) {
-			headers['content-length'] = String(
-				typeof body === 'string' ? new TextEncoder().encode(body).length : body.length,
-			);
-		}
-
-		const res = await dispatchRequest(
+		return dispatchFetch(
 			this.kernel.portRegistry,
 			port,
 			{ method: init.method ?? 'GET', url, headers, body },
 			{ timeoutMs: init.timeout },
 		);
-
-		// 204/205/304 are null-body statuses — Response throws if given a body.
-		const nullBody = res.statusCode === 204 || res.statusCode === 205 || res.statusCode === 304;
-		return new Response(nullBody ? null : (res.bodyBytes as unknown as BodyInit), {
-			status: res.statusCode,
-			headers: res.headers,
-		});
 	}
 
 	/**
