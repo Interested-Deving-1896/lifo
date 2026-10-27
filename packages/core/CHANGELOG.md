@@ -1,3 +1,10 @@
+## 0.10.25
+
+### Patch Changes
+
+- A node script's `fetch` to `localhost`, `127.0.0.1` or `[::1]` on a port bound inside the VM now reaches that server. It used to go to the browser's `fetch`, so the real machine's localhost answered instead, and in the RapidNative editor a project's `api/` could not reach the tinbase running beside it ("sending a message failed"). Other hosts and unbound ports still go to the browser's `fetch`.
+- `http.request` to a loopback port now waits for the server. It called the handler synchronously and read the response at once, so async servers such as Express and tinbase answered with an empty 200.
+
 ## 0.10.24
 
 ### Patch Changes
