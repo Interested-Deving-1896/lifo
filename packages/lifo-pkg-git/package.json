@@ -37,7 +37,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "isomorphic-git": "^1.37.2"
+    "isomorphic-git": "^1.38.6"
   },
   "peerDependencies": {
     "@lifo-sh/core": "workspace:*"
